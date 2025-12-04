@@ -23,6 +23,10 @@ import scripts.civitai_file_manage as _file
 
 gl.init()
 
+# OPTIMIZATION: Create a persistent session to reuse TCP connections
+# This speeds up requests by avoiding repeated SSL handshakes
+session = requests.Session()
+
 def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=None):
     use_LORA = getattr(opts, "use_LORA", False)
     folder = None
@@ -41,7 +45,7 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
         folder = os.path.join(main_models)
         
     if content_type == "Checkpoint":
-        # Safe check for ckpt_dir (A1111) and ckpt_dirs (Forge/SD.Next)
+        # Forge Neo Compatibility Fix + Optimization
         ckpt_dir = getattr(cmd_opts, 'ckpt_dir', None)
         ckpt_dirs = getattr(cmd_opts, 'ckpt_dirs', None)
         
@@ -53,7 +57,6 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
             folder = os.path.join(main_models,"Stable-diffusion")
             
     elif content_type == "Hypernetwork":
-        # Safe check using getattr
         hyper_dir = getattr(cmd_opts, 'hypernetwork_dir', None)
         if hyper_dir and not custom_folder:
             folder = hyper_dir
@@ -61,7 +64,6 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
             folder = os.path.join(main_models, "hypernetworks")
         
     elif content_type == "TextualInversion":
-        # Safe check using getattr
         embed_dir = getattr(cmd_opts, 'embeddings_dir', None)
         if embed_dir and not custom_folder:
             folder = embed_dir
@@ -75,7 +77,6 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
             folder = os.path.join(custom_folder, "aesthetic_embeddings")
             
     elif content_type == "LORA":
-        # Safe check for lora_dir and lora_dirs
         lora_dir = getattr(cmd_opts, 'lora_dir', None)
         lora_dirs = getattr(cmd_opts, 'lora_dirs', None)
         
@@ -89,7 +90,6 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
     elif content_type == "LoCon":
         folder = os.path.join(main_models, "LyCORIS")
         if use_LORA and not fromCheck:
-            # Safe check for LORA logic again
             lora_dir = getattr(cmd_opts, 'lora_dir', None)
             lora_dirs = getattr(cmd_opts, 'lora_dirs', None)
             
@@ -101,7 +101,6 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
                 folder = os.path.join(main_models, "Lora")
 
     elif content_type == "DoRA":
-        # Safe check for LORA logic
         lora_dir = getattr(cmd_opts, 'lora_dir', None)
         lora_dirs = getattr(cmd_opts, 'lora_dirs', None)
         
@@ -113,7 +112,6 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
             folder = os.path.join(main_models, "Lora")
             
     elif content_type == "VAE":
-        # Safe check for vae_dir and vae_dirs
         vae_dir = getattr(cmd_opts, 'vae_dir', None)
         vae_dirs = getattr(cmd_opts, 'vae_dirs', None)
         
@@ -125,7 +123,6 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
             folder = os.path.join(main_models, "VAE")
             
     elif content_type == "Controlnet":
-        # Already had safe check, kept it consistent
         cnet_dir = getattr(cmd_opts, 'controlnet_dir', None)
         if cnet_dir and not custom_folder:
             folder = cnet_dir
@@ -218,7 +215,8 @@ def model_list_html(json_data):
             
     json_data['items'] = filtered_items
     
-    HTML = '<div class="column civmodellist">'
+    # OPTIMIZATION: Use list for string building
+    html_parts = ['<div class="column civmodellist">']
     sorted_models = {}
     existing_files = set()
     existing_files_sha256 = set()
@@ -234,8 +232,8 @@ def model_list_html(json_data):
                 existing_files.add(file.lower())
                 if file.endswith('.json'):
                     json_path = os.path.join(root, file)
-                    with open(json_path, 'r', encoding="utf-8") as f:
-                        try:
+                    try:
+                        with open(json_path, 'r', encoding="utf-8") as f:
                             json_file = json.load(f)
                             if isinstance(json_file, dict):
                                 sha256 = json_file.get('sha256')
@@ -243,8 +241,8 @@ def model_list_html(json_data):
                                     existing_files_sha256.add(sha256.upper())
                             else:
                                 print(f"Invalid JSON data in {json_path}. Expected a dictionary.")
-                        except Exception as e:
-                            print(f"Error decoding JSON in {json_path}: {e}")
+                    except Exception as e:
+                        print(f"Error decoding JSON in {json_path}: {e}")
     
     for item in json_data['items']:
         model_id = item.get('id')
@@ -302,10 +300,14 @@ def model_list_html(json_data):
                             installstatus = "civmodelcardoutdated"
             model_name_js = model_name.replace("'", "\\'")
             model_string = escape(f"{model_name_js} ({model_id})")
-            model_card = f'<figure class="civmodelcard {nsfw} {installstatus}" base-model="{baseModel}" date="{date}" onclick="select_model(\'{model_string}\', event)">'
+            
+            # Build model card parts
+            card_parts = [f'<figure class="civmodelcard {nsfw} {installstatus}" base-model="{baseModel}" date="{date}" onclick="select_model(\'{model_string}\', event)">']
+            
             if installstatus != "civmodelcardinstalled":
-                model_card += f'<input type="checkbox" class="model-checkbox" id="checkbox-{model_string}" onchange="multi_model_select(\'{model_string}\', \'{item["type"]}\', this.checked)" style="opacity: 0; position: absolute; top: 10px; right: 10px;">' \
-                            + f'<label for="checkbox-{model_string}" class="custom-checkbox"></label>'
+                card_parts.append(f'<input type="checkbox" class="model-checkbox" id="checkbox-{model_string}" onchange="multi_model_select(\'{model_string}\', \'{item["type"]}\', this.checked)" style="opacity: 0; position: absolute; top: 10px; right: 10px;">')
+                card_parts.append(f'<label for="checkbox-{model_string}" class="custom-checkbox"></label>')
+            
             if len(item["name"]) > 40:
                 display_name = item["name"][:40] + '...'
             else:
@@ -313,24 +315,25 @@ def model_list_html(json_data):
             
             display_name = escape(display_name)
             full_name = escape(item['name'])
-            model_card += imgtag \
-                        + f'<figcaption title="{full_name}">{display_name}</figcaption></figure>'
+            card_parts.append(imgtag)
+            card_parts.append(f'<figcaption title="{full_name}">{display_name}</figcaption></figure>')
+            
+            model_card = "".join(card_parts)
         
         if gl.sortNewest:
             sorted_models[date].append(model_card)
         else:
-            HTML += model_card
+            html_parts.append(model_card)
     
     if gl.sortNewest:
         for date, cards in sorted(sorted_models.items(), reverse=True):
-            HTML += f'<div class="date-section"><h4>{date}</h4><hr style="margin-bottom: 5px; margin-top: 5px;">'
-            HTML += '<div class="card-row">'
-            for card in cards:
-                HTML += card
-            HTML += '</div></div>'
+            html_parts.append(f'<div class="date-section"><h4>{date}</h4><hr style="margin-bottom: 5px; margin-top: 5px;">')
+            html_parts.append('<div class="card-row">')
+            html_parts.extend(cards)
+            html_parts.append('</div></div>')
             
-    HTML += '</div>'
-    return HTML
+    html_parts.append('</div>')
+    return "".join(html_parts)
 
 def create_api_url(content_type=None, sort_type=None, period_type=None, use_search_term=None, base_filter=None, only_liked=None, tile_count=None, search_term=None, nsfw=None, isNext=None):
     base_url = "https://civitai.com/api/v1/models"
@@ -600,7 +603,8 @@ def fetch_and_process_image(image_url):
     try:
         parsed_url = urllib.parse.urlparse(image_url)
         if parsed_url.scheme and parsed_url.netloc:
-            response = requests.get(image_url, proxies=proxies, verify=ssl)
+            # OPTIMIZATION: Reuse session
+            response = session.get(image_url, proxies=proxies, verify=ssl)
             if response.status_code == 200:
                 image = Image.open(BytesIO(response.content))
                 geninfo, _ = read_info_from_image(image)
@@ -750,7 +754,9 @@ def update_model_info(model_string=None, model_version=None, only_html=False, in
                 
                 model_url = selected_version.get('downloadUrl', '')
                 model_main_url = f"https://civitai.com/models/{item['id']}"
-                img_html = '<div class="sampleimgs"><input type="radio" name="zoomRadio" id="resetZoom" class="zoom-radio" checked>'
+                
+                # OPTIMIZATION: Use list for string building
+                img_html_parts = ['<div class="sampleimgs"><input type="radio" name="zoomRadio" id="resetZoom" class="zoom-radio" checked>']
                 
                 url = f"https://civitai.com/api/v1/model-versions/{selected_version['id']}"
                 api_version = request_civit_api(url)
@@ -764,12 +770,12 @@ def update_model_info(model_string=None, model_version=None, only_html=False, in
                     if pic.get('nsfwLevel') >= 4:
                         class_name = 'class="civnsfw model-block"'
 
-                    img_html += f'''
+                    img_html_parts.append(f'''
                     <div {class_name} style="display:flex;align-items:flex-start;">
                     <div class="civitai-image-container">
                     <input type="radio" name="zoomRadio" id="zoomRadio{index}" class="zoom-radio">
                     <label for="zoomRadio{index}" class="zoom-img-container">
-                    '''
+                    ''')
                     
                     prompt_dict = pic.get('meta', {})
                     
@@ -781,28 +787,28 @@ def update_model_info(model_string=None, model_version=None, only_html=False, in
                     image_url = re.sub(r'/width=\d+', f'/width={pic["width"]}', pic["url"])
                     if pic['type'] == "video":
                         image_url = image_url.replace("width=", "transcode=true,width=")
-                        img_html += f'<video data-sampleimg="true" {playback} muted playsinline><source src="{image_url}" type="video/mp4"></video>'
+                        img_html_parts.append(f'<video data-sampleimg="true" {playback} muted playsinline><source src="{image_url}" type="video/mp4"></video>')
                         meta_button = False
                         prompt_dict = {}
                     else:
-                        img_html += f'<img data-sampleimg="true" src="{image_url}">'
+                        img_html_parts.append(f'<img data-sampleimg="true" src="{image_url}">')
 
-                    img_html += '''
+                    img_html_parts.append('''
                         </label>
                         <label for="resetZoom" class="zoom-overlay"></label>
-                    '''
+                    ''')
                     
                     if meta_button:
-                        img_html += f'''
+                        img_html_parts.append(f'''
                             <div class="civitai_txt2img" style="margin-top:30px;margin-bottom:30px;">
                             <label onclick='sendImgUrl("{escape(image_url)}")' class="civitai-txt2img-btn" style="max-width:fit-content;cursor:pointer;">Send to txt2img</label>
                             </div></div>
-                        '''
+                        ''')
                     else:
-                        img_html += '</div>'
+                        img_html_parts.append('</div>')
                         
                     if prompt_dict:
-                        img_html += '<div style="margin:1em 0em 1em 1em;text-align:left;line-height:1.5em;" id="image_info"><dl style="gap:10px; display:grid;">'
+                        img_html_parts.append('<div style="margin:1em 0em 1em 1em;text-align:left;line-height:1.5em;" id="image_info"><dl style="gap:10px; display:grid;">')
                         # Define the preferred order of keys
                         preferred_order = ["prompt", "negativePrompt", "seed", "Size", "Model", "Clip skip", "sampler", "steps", "cfgScale"]
                         # Loop through the keys in the preferred order and add them to the HTML
@@ -823,30 +829,32 @@ def update_model_info(model_string=None, model_version=None, only_html=False, in
                                 key = key_map.get(key, key)
                                 
                                 if meta_btn:
-                                    img_html += f'<div class="civitai-meta-btn" onclick="metaToTxt2Img(\'{escape(str(key))}\', this)"><dt>{escape(str(key))}</dt><dd>{escape(str(value))}</dd></div>'
+                                    img_html_parts.append(f'<div class="civitai-meta-btn" onclick="metaToTxt2Img(\'{escape(str(key))}\', this)"><dt>{escape(str(key))}</dt><dd>{escape(str(value))}</dd></div>')
                                 else:
-                                    img_html += f'<div class="civitai-meta"><dt>{escape(str(key))}</dt><dd>{escape(str(value))}</dd></div>'
+                                    img_html_parts.append(f'<div class="civitai-meta"><dt>{escape(str(key))}</dt><dd>{escape(str(value))}</dd></div>')
                         # Check if there are remaining keys in meta
                         remaining_keys = [key for key in prompt_dict if key not in preferred_order]
 
                         # Add the rest
                         if remaining_keys:
-                            img_html += f"""
+                            img_html_parts.append(f"""
                             <div class="tabs">
                                 <div class="tab">
                                     <input type="checkbox" class="accordionCheckbox" id="chck{index}">
                                     <label class="tab-label" for="chck{index}">More details...</label>
                                     <div class="tab-content" style="gap:10px;display:grid;margin-left:1px;">
-                            """
+                            """)
                             for key in remaining_keys:
                                 value = prompt_dict[key]
-                                img_html += f'<div class="civitai-meta"><dt>{escape(str(key).capitalize())}</dt><dd>{escape(str(value))}</dd></div>'
-                            img_html = img_html + '</div></div></div>'
+                                img_html_parts.append(f'<div class="civitai-meta"><dt>{escape(str(key).capitalize())}</dt><dd>{escape(str(value))}</dd></div>')
+                            img_html_parts.append('</div></div></div>')
 
-                        img_html += '</dl></div>'
+                        img_html_parts.append('</dl></div>')
 
-                    img_html = img_html + '</div>'
-                img_html = img_html + '</div>'
+                    img_html_parts.append('</div>')
+                img_html_parts.append('</div>')
+                img_html = "".join(img_html_parts)
+                
                 tags_html = ''.join([f'<span class="civitai-tag">{escape(str(tag))}</span>' for tag in tags])
                 def perms_svg(color):
                     return  f'<span style="display:inline-block;vertical-align:middle;">'\
@@ -1169,7 +1177,8 @@ def request_civit_api(api_url=None, skip_error_check=False):
     headers = get_headers()
     proxies, ssl = get_proxies()
     try:
-        response = requests.get(api_url, headers=headers, timeout=(60,30), proxies=proxies, verify=ssl)
+        # OPTIMIZATION: Reuse session
+        response = session.get(api_url, headers=headers, timeout=(60,30), proxies=proxies, verify=ssl)
         if skip_error_check:
             response.encoding = "utf-8"
             data = json.loads(response.text)
