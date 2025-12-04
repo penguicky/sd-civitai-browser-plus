@@ -41,7 +41,7 @@ def contenttype_folder(content_type, desc=None, fromCheck=False, custom_folder=N
         folder = os.path.join(main_models)
         
     if content_type == "Checkpoint":
-        if cmd_opts.ckpt_dir and not custom_folder:
+        if hasattr(cmd_opts, 'ckpt_dir') and cmd_opts.ckpt_dir and not custom_folder:
             folder = cmd_opts.ckpt_dir
         else:
             folder = os.path.join(main_models,"Stable-diffusion")
