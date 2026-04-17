@@ -42,28 +42,33 @@ except:
     queue = True
 
 def start_aria2_rpc():
-    start_file = os.path.join(aria2path, '_')
-    running_file = os.path.join(aria2path, 'running')
     null = open(os.devnull, 'w')
-    
-    if os.path.exists(running_file):
-        try:
-            if os_type == 'Linux':
-                env = os.environ.copy()
-                env['PATH'] = '/usr/bin:' + env['PATH']
-                subprocess.Popen("pkill aria2", shell=True, env=env)
-            else:
-                subprocess.Popen(stop_rpc, stdout=null, stderr=null)
-            time.sleep(1)
-        except Exception as e:
-            print(f"Failed to stop Aria2 RPC : {e}")
-    else:
-        if os.path.exists(start_file):
-            os.rename(start_file, running_file)
-            return
+
+    import urllib.request
+    import json
+    try:
+        req = urllib.request.Request("http://127.0.0.1:24000/jsonrpc", data=json.dumps({
+            "jsonrpc": "2.0",
+            "id": "1",
+            "method": "aria2.getVersion",
+            "params": ["token:" + rpc_secret]
+        }).encode('utf-8'))
+        with urllib.request.urlopen(req, timeout=1) as response:
+            if response.status == 200:
+                return
+    except Exception:
+        pass
+
+    try:
+        if os_type == 'Linux':
+            env = os.environ.copy()
+            env['PATH'] = '/usr/bin:' + env['PATH']
+            subprocess.Popen("pkill aria2", shell=True, env=env, stdout=null, stderr=null)
         else:
-            with open(start_file, 'w', encoding="utf-8"):
-                pass
+            subprocess.Popen(stop_rpc, stdout=null, stderr=null)
+        time.sleep(1)
+    except Exception as e:
+        print(f"Failed to stop Aria2 RPC : {e}")
 
     try:
         show_log = getattr(opts, "show_log", False)
@@ -72,12 +77,9 @@ def start_aria2_rpc():
         subprocess_args = {'shell': True}
         if not show_log:
             subprocess_args.update({'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL})
-            
+
         subprocess.Popen(cmd, **subprocess_args)
-        if os.path.exists(running_file):
-            print("Aria2 RPC restarted")
-        else:
-            print("Aria2 RPC started")
+        print("Aria2 RPC started")
     except Exception as e:
         print(f"Failed to start Aria2 RPC server: {e}")
         
@@ -378,7 +380,7 @@ def download_file(url, file_path, install_path, model_id, progress=gr.Progress()
         split_aria2 = getattr(opts, "split_aria2", 64)
         max_retries = 5
         gl.download_fail = False
-        aria2_rpc_url = "http://localhost:24000/jsonrpc"
+        aria2_rpc_url = "http://127.0.0.1:24000/jsonrpc"
 
         file_name = os.path.basename(file_path)
         
